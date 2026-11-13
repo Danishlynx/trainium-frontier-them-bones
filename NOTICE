@@ -1,0 +1,17 @@
+Them Bones: an entry to the AWS Trainium Frontier Competition
+Copyright 2026 Danish Ali
+
+This repository contains code derived from the AWS Trainium Frontier Competition
+starter kit, which is licensed under the Apache License, Version 2.0:
+
+    Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+What came from the kit:
+
+  - The training scripts under round1/ and round2/ started as the kit's train.py
+    (which the kit describes as a nanochat-derived pipeline) and were then changed
+    heavily. Each file's header says what was changed.
+  - round2/submission/inference.py is the kit's reference inference wrapper, unchanged.
+
+Everything else, including the NKI kernels, is the author's work and is released
+under the same license.
