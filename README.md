@@ -92,7 +92,7 @@ Round 2 keeps two large tables in host memory, more than 800 GB together, so it 
 
 ## Weights and paper
 
-The final Round 2 checkpoint is about 157 GB, most of it the two tables. Hosting is being sorted out with the organizers, and I'll link it here when it's up. A short paper with the ablations is coming in December.
+The final Round 2 checkpoint is about 157 GB, most of it the two tables. It was trained on the organizers' scoring machines and isn't something I can release, so there are no weights here. The scored files and the switches in `round2/source/final_run.env` are everything needed to train it again. A short paper with the ablations is coming in December.
 
 ## Thanks
 
