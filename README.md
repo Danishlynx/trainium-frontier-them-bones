@@ -4,7 +4,7 @@
 
 This is my entry to the AWS Trainium Frontier Competition, which ran from September to November 2026. The task: train a language model from random weights on Trainium2 chips inside a fixed time budget, then get scored on how good it is. Everything was open to change: the model, the optimizer, the data order, and the kernels that run on the chip.
 
-It finished **3rd overall out of 100 teams**, and **1st in Round 1**.
+It finished **3rd overall**, and **1st in Round 1**. A hundred teams were admitted, and the top ten from Round 1 went on to Round 2.
 
 | | Round 1 | Round 2 |
 |---|---|---|
@@ -58,7 +58,7 @@ Each round has its own README with the model, the kernels and what actually move
 
 ## The short version
 
-**Round 1 was a throughput contest.** With 30 minutes on one chip, a faster step means more training, and more training wins. The starter kit ran at about 42,000 tokens a second. The final file runs at about 340,000. Most of that came from fusing work into hand-built NKI kernels (attention, the loss, whole blocks of small elementwise ops) and from running the MLP matmuls in fp8. The single biggest gain wasn't a kernel at all, though. It was cutting the training text into windows the same way the scorer does.
+**Round 1 was a throughput contest.** With 30 minutes on one chip, a faster step means more training, and more training wins. The starter kit ran at about 42,000 tokens a second. The final file runs at about 346,000. Most of that came from fusing work into hand-built NKI kernels (attention, the loss, whole blocks of small elementwise ops) and from running the MLP matmuls in fp8. The single biggest gain wasn't a kernel at all, though. It was cutting the training text into windows the same way the scorer does.
 
 <p align="center">
   <img src="assets/round1-leaderboard-2026-09-23.png" alt="Round 1 leaderboard on 23 September 2026 with Them Bones first at 0.9525" width="720">
@@ -66,13 +66,13 @@ Each round has its own README with the model, the kernels and what actually move
   <sub>The Round 1 leaderboard on 23 September, a week before the close. The final score was 0.9328.</sub>
 </p>
 
-**Round 2 added a second score, and that changed everything.** bpb measures how well the model predicts text. CORE measures whether it can answer questions. I got very good at the first one. Two large tables, trained by gradient like any other weight, gave me the lowest bpb in the field, and almost none of that carried over to CORE. What did move CORE was less glamorous: a mixture-of-experts layer, and re-laying some of the provided training text into question-and-answer and input/output layouts, which the organizers ruled was allowed.
+**Round 2 added a second score, and that changed everything.** bpb measures how well the model predicts text. CORE measures whether it can answer questions. I got very good at the first one. Two large tables, trained by gradient like any other weight, gave me the lowest bpb in the field, and almost none of that carried over to CORE. What did move CORE was less glamorous: more training steps from faster kernels, a better-shaped model, and re-laying some of the provided training text into question-and-answer and input/output layouts, which the organizers ruled was allowed. A mixture-of-experts layer helped both scores a little.
 
 ## What I'd do differently
 
 - **Bet on a bigger dense model.** In mid-October my instinct said to go that way. I stayed with the tables because the loss was dropping faster. By the time it was clear that CORE wasn't following, a bigger model no longer fit in memory without work I had no time left for.
 - **Trust single runs less.** I uploaded the exact same file four times and it scored between 0.332 and 0.347 CORE. I lost most of a week reading that kind of noise as progress.
-- **Never trust a kernel benchmark on its own.** Three times a kernel looked great in isolation and then lost in the real training loop.
+- **Never trust a kernel benchmark on its own.** More than once a kernel looked great in isolation and then lost in the real training loop.
 
 ## Running it
 
@@ -86,7 +86,7 @@ NEURON_LOGICAL_NC_CONFIG=2 torchrun --standalone --nproc_per_node=4 train.py
 NEURON_LOGICAL_NC_CONFIG=2 torchrun --standalone --nproc_per_node=64 train.py
 ```
 
-Software on the machines I trained on: neuronx-cc 2.26.6360.0, torch-neuronx 2.11.3, NKI 0.5.0, PyTorch 2.11.0, Ubuntu 24.04.
+Software on my Round 2 machine, which ran a copy of the organizers' Round 1 image: neuronx-cc 2.26.6360.0, torch-neuronx 2.11.3, NKI 0.5.0, PyTorch 2.11.0, Ubuntu 24.04.
 
 Round 2 keeps two large tables in host memory, more than 800 GB together, so it really does need the whole `trn2.48xlarge`.
 

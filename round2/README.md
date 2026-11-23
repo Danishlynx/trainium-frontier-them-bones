@@ -13,15 +13,15 @@ The setup: one `trn2.48xlarge` (16 Trainium2 chips, 64 ranks), 4 hours of traini
 ## The model
 
 - 18 layers, width 1536, 12 heads of 128.
-- Five of the blocks (9, 11, 13, 15, 17) carry a mixture of experts: 64 experts, one living on each rank, and each token goes to one of them. That's 3.68B parameters in total, with about 0.71B active for any one token.
+- Five of the blocks (9, 11, 13, 15, 17) carry a mixture of experts next to a shared MLP half: 64 experts, one living on each rank, and each token goes to one of them. That's 3.68B parameters in total, with about 0.71B active for any one token.
 - Attention sees a 512-token band on 13 layers and the full 2,048 tokens on the other 5.
 - Value embeddings on two layers, and U-net skips carried over from Round 1.
 - Two big tables in host memory. Both start at zero and are trained only by the model's own loss gradient:
-  - an **n-gram table** (2^30 rows): hashes of the last 2 and 3 tokens pick rows that get added to the input embedding;
+  - an **n-gram table** (2^30 rows): hashes of the last 2 and 3 tokens pick rows that are projected and added to the input embedding;
   - an **output-side table** (2^32 rows): a hash of the last 16 tokens picks a row that nudges the output logits.
 - Muon and AdamW, with the optimizer state split across the 64 ranks.
 
-It trains about 15,000 steps of 1,048,576 tokens in the 4 hours, at 0.86 s a step. The kit's baseline, a 0.6B dense model, took 2.41 s for the same step.
+On my own machine the closest recipe trained about 15,300 steps of 1,048,576 tokens in the 4 hours, at about 0.87 s a step. The kit's baseline, a 0.6B dense model, took about 2.4 s for the same step.
 
 ## The kernels the final model runs
 
@@ -36,11 +36,11 @@ It trains about 15,000 steps of 1,048,576 tokens in the 4 hours, at 0.86 s a ste
 
 `source/kernels/` has 25 modules because I kept the earlier variants in the tree: the bf16 fused MLP, the first fp8 versions, and a few experiments that lost. The five named above are the ones `final_run.env` loads.
 
-All the fp8 kernels accumulate in fp32 and round once at the end.
+The fp8 kernels add up their tile results in fp32 and round once at the end.
 
 ## What moved each score
 
-Measured on my own machine, each step against the one before it, from the kit's baseline (0.797 bpb, 0.208 CORE) to the last step of that ladder (0.669 bpb, 0.344 CORE). Read it as a rough split, not exact science.
+Measured on my own machine, each run against the one before it, from the kit with four small fixes (0.797 bpb, 0.208 CORE) to my last full run (0.669 bpb, 0.344 CORE). Most runs changed more than one thing, so each row adds up whole runs by their main change. Read it as a rough split, not exact science.
 
 | What | bpb | CORE |
 |---|---|---|
@@ -50,17 +50,19 @@ Measured on my own machine, each step against the one before it, from the kit's 
 | Mixture of experts | -0.009 | +0.011 |
 | Re-laid text and data selection | -0.003 | +0.053 |
 
+One run (+0.020 CORE) mixed new fp8 kernels with a new text layout. I counted it under text. Counted under throughput instead, those two rows become +0.057 and +0.033.
+
 A few things behind that table:
 
-- **Tables buy loss, not answers.** They were the single biggest bpb gain and they moved CORE the wrong way. They memorise how web text continues. That isn't the same as knowing things.
-- **The bracket result.** One CORE task asks the model to close bracket sequences, and mine scored 0.10 on it. I cut bracket runs out of the provided documents and laid them out as input and output pairs under generic labels, which the organizers ruled was within the rules. That task went to 0.86. I wasn't the first to find this, and nothing else I tried responded like it.
-- **Faster steps stopped paying.** By late October the chips were sitting at their power limit. Kernels that only removed waiting did nothing for a 4-hour run. Only doing less work per token still helped.
+- **Tables buy loss, not answers.** They were the single biggest bpb gain and CORE did not follow. The -0.012 is inside the noise. They memorise how web text continues. That isn't the same as knowing things.
+- **The bracket result.** One CORE task asks the model to close bracket sequences, and mine scored 0.10 on it. I cut bracket runs out of the provided documents and laid them out as input and output pairs under generic labels, which the organizers ruled was within the rules. On my own machine that task went to 0.86. From what the organizers said, I doubt I was the first to find this, and nothing else I tried responded like it.
+- **Faster steps stopped paying.** From mid-October the chips were sitting at their power limit. Kernels that only removed waiting kept almost none of their gain over a 4-hour run. Only doing less work per token still helped.
 
 ## What didn't work
 
-- **A count-based memory.** It reached 0.58 bpb on my own machine. The organizers ruled, fairly, that a table filled by counting the data is stored data and not a model. Several days gone.
-- **Bigger dense models.** 0.78B and 1B versions ran out of device memory at my batch size. I never did the work to make them fit, and I think that was the real mistake of the round.
-- **A long list of smaller ideas.** A copy head, a ranking loss, full attention on every layer, heavier doses of re-laid text, more expert blocks. All of them lost on a full 4-hour run, usually after looking fine on a short one.
+- **A count-based memory.** It reached 0.58 bpb on my own machine and left CORE where it was. The organizers ruled, fairly, that a table filled by counting the data is stored data and not a model. Several days gone.
+- **Bigger dense models.** A 0.78B model and a 1.1B model both kept failing device-memory allocations, and the larger one ran at 3.3 s a step. I never did the work to make them fit, and I think that was the real mistake of the round.
+- **A long list of smaller ideas.** A ranking loss, heavier doses of re-laid text and full attention on every layer all lost on a full 4-hour run, usually after looking fine on a short one. Full attention gained a little bpb and lost CORE. A copy head only ever ran inside a bigger bundle that lost, and a model with nine expert blocks could not be scored for CORE at all.
 
 ## Honest numbers
 

@@ -1,6 +1,6 @@
 # Round 1: one chip, thirty minutes
 
-**Result: 0.932751 validation bpb, 1st of 100 teams** (`sub-3c799aa6`). Second place was 0.9442.
+**Result: 0.932751 validation bpb, 1st on the final Round 1 leaderboard** (`sub-3c799aa6`), in a field of 100 admitted teams. Second place was 0.9442.
 
 <p align="center">
   <img src="../assets/round1-leaderboard-2026-09-23.png" alt="Round 1 leaderboard on 23 September 2026 with Them Bones first at 0.9525" width="720">
@@ -17,32 +17,32 @@ The setup: one Trainium2 chip (`trn2.3xlarge`, 8 NeuronCores), a 30-minute train
 - ReLU² MLPs at ratio 6, RMSNorm, RoPE, QK-norm, and U-net style skip connections.
 - Muon for the matrices, AdamW for everything else.
 - bf16 throughout, with fp8 for the six MLP matmuls during training.
-- 3,038 optimizer steps of 262,144 tokens inside the 30 minutes.
+- 3,038 optimizer steps and 619M tokens inside the 30 minutes. The batch starts at 131,072 tokens and doubles to 262,144 after the first 30% of the clock.
 
 ## Where the speed came from
 
-The starter kit ran at about 42,000 tokens a second and used roughly 3% of what the chip can do. The final file runs at about 340,000 tokens a second, at roughly 43%.
+The starter kit ran at about 42,000 tokens a second and used under 3% of what the chip can do. The final file runs at about 346,000 tokens a second. That is 62% of the chip's bf16 peak rate, or about 39% if the fp8 work is held against the higher fp8 peak.
 
-- **A dtype slip in the baseline.** Two fp32 scalars were quietly promoting the whole residual stream to fp32. Casting them made every step 1.4x faster. Cheapest win of the contest.
-- **Fusing the small stuff.** Profiling showed several hundred tiny elementwise ops, about 0.2 ms each, eating half of every step. A handful of NKI kernels took that away: RoPE with QK-norm, the block head, and later most of a block's elementwise tail in one "megablock" kernel.
+- **A dtype slip in the baseline.** Two fp32 scalars were quietly promoting the whole residual stream to fp32. On this chip fp32 costs 1.4x the step time of bf16, so casting them was the cheapest win of the contest.
+- **Fusing the small stuff.** Profiling my own 8-layer model showed hundreds of tiny elementwise ops, about 0.2 ms each, eating about half of the forward and backward pass. A handful of NKI kernels took that away: RoPE with QK-norm, the block head, and later most of a block's elementwise tail in one "megablock" kernel.
 - **Attention.** A flash-style attention kernel with its own backward. Later, RoPE and QK-norm moved inside it and get applied as the tiles load. With two related changes that was worth about 14% more training steps.
 - **The loss head.** Softcap, log-softmax and cross-entropy in one launch each way. The step went from 1.37 s to 1.21 s.
-- **fp8.** All six MLP matmuls run in fp8 during training. Each one bought 2 to 4% more steps, once the scales were right (see below, it took a while).
+- **fp8.** All six MLP matmuls run in fp8 during training. Each one bought between 1 and 4% more steps, once the scales were right (see below, it took a while).
 - **The optimizer.** Muon's orthogonalisation is split across the ranks, and AdamW and the gradient norm run as kernels too.
 
 ## The wins that weren't kernels
 
 - **Window slicing.** The biggest single change of the whole round, worth 0.075 bpb. The kit started every training window at the start of a document, while the scorer's windows mostly start mid-document. Cutting each packed row into 8 windows fixed the mismatch.
-- **Depth follows speed.** Deeper models kept losing at 30 minutes, until the step got fast enough. Depth 10 and then depth 12 only started winning after the throughput work. I closed that question as "no" four times before it flipped.
+- **Depth follows speed.** Deeper models kept losing at 30 minutes, until the step got fast enough. Depth 10 and then depth 12 only started winning after the throughput work. Depth 10 lost four full runs before it finally won.
 - **Predicting further ahead, for a while.** For the first half of the run the model is also asked for the tokens two and three ahead, faded out to zero by the halfway mark. The saved model is a plain next-token model.
-- **Small things at the end.** Leaving end-of-document targets out of the loss late in the run, an fp32 master copy for Muon's updates, and blending the final weights slightly toward an earlier snapshot.
+- **Small things at the end.** Leaving document-boundary targets out of the loss late in the run, an fp32 master copy for Muon's updates, and blending the final weights slightly toward an earlier snapshot.
 
 ## What went wrong along the way
 
 - **The fp8 clipping bug.** One activation scale was calibrated on a sample that under-read the real values by about 29x, so 3 of 10 layers were clipping. For days the fp8 forward pass looked like a dead end. It was a bug.
-- **Training and evaluation disagreed.** fp8 training saturates one activation at 30,720, and the bf16 evaluation path didn't. Roughly one run in eleven was being scored as a slightly different model, until evaluation got the same clamp.
-- **The matmul that was only fast alone.** A hand-built GEMM hit over 90% of peak in its benchmark and made real training 17% slower. The benchmark reused one input buffer. Real training doesn't, and with fresh buffers a transpose fell off the hardware path. One descriptor change fixed it.
-- **A quiet mismatch in my own packaging.** For six candidates the submitted file ran one matmul in bf16 while my own runs used fp8, because of how the single file was assembled. Nothing crashed, it was just slower than it should have been. I only found it by running the submitted file itself.
+- **Training and evaluation disagreed.** fp8 training saturates one activation at 30,720, and the bf16 evaluation path didn't. About one in eleven of my own runs would have been scored as a slightly different model, until evaluation got the same clamp.
+- **The matmul that was only fast alone.** A hand-built GEMM hit over 90% of peak in its benchmark and made real training 17 to 20% slower. The benchmark reused one input buffer. Real training doesn't, and with fresh buffers a transpose fell off the hardware path. One descriptor change fixed it.
+- **A quiet mismatch in my own packaging.** For six candidates in a row, five of them uploaded, the packaged file ran one matmul in bf16 while my own runs used fp8, because of how the single file was assembled. Nothing crashed, it was just slower than it should have been. I only found it by running the submitted file itself.
 
 ## Finding the kernels in the source
 
