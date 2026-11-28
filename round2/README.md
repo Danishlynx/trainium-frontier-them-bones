@@ -32,7 +32,7 @@ On my own machine the closest recipe trained about 15,300 steps of 1,048,576 tok
 | fp8 MLP | The MLP forward and backward in fp8. The dense MLPs, the shared half of each expert block and every expert all go through it. | `source/kernels/nki_mlp_l4t.py` |
 | fp8 weight gradients | The weight-gradient matmuls for the projections and the MLP. | `source/kernels/nki_dw8.py`, `nki_dw8w.py` |
 | Loss head | The output-table term, the softcap and the cross-entropy, in vocabulary chunks. The head matmul itself stays in PyTorch. | `source/train.py`, `_lh_os1_fwd_kernel` near line 5881 |
-| Embedding backward | The embedding gradient as a one-hot matmul on the chip. | `source/train.py`, `_eb_bwd_kernel` near line 5606 |
+| Embedding backward | The embedding gradient as a one-hot matmul on the chip. | `source/train.py`, `_eb_bwd_w_kernel` near line 5658 |
 
 `source/kernels/` has 25 modules because I kept the earlier variants in the tree: the bf16 fused MLP, the first fp8 versions, and a few experiments that lost. `final_run.env` loads seven of them: the five named above, plus `nki_mlp_fused8.py` and `nki_attn_proj8.py`, the first fp8 modules, which the fp8 paths still import.
 
@@ -47,7 +47,7 @@ Measured on my own machine, each run against the one before it, from the kit wit
 | Throughput: kernels, fp8, overlapping compute with communication | -0.035 | +0.037 |
 | Recipe and shape: value embeddings, 18x1536, schedule, weight decay | -0.033 | +0.048 |
 | The two tables | -0.049 | -0.012 |
-| Mixture of experts | -0.009 | +0.011 |
+| Mixture of experts | -0.008 | +0.011 |
 | Re-laid text and data selection | -0.003 | +0.053 |
 
 One run (+0.020 CORE) mixed new fp8 kernels with a new text layout. I counted it under text. Counted under throughput instead, those two rows become +0.057 and +0.033.
