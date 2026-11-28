@@ -31,10 +31,10 @@ On my own machine the closest recipe trained about 15,300 steps of 1,048,576 tok
 | fp8 attention projections | The QKV and output projections in fp8, with weights cast ahead of time. | `source/kernels/nki_attn_tt8g.py` |
 | fp8 MLP | The MLP forward and backward in fp8. The dense MLPs, the shared half of each expert block and every expert all go through it. | `source/kernels/nki_mlp_l4t.py` |
 | fp8 weight gradients | The weight-gradient matmuls for the projections and the MLP. | `source/kernels/nki_dw8.py`, `nki_dw8w.py` |
-| Loss head | The head matmul, the output-table read, the softcap and the cross-entropy, in vocabulary chunks. | `source/train.py`, `_lh_os1_fwd_kernel` near line 5881 |
+| Loss head | The output-table term, the softcap and the cross-entropy, in vocabulary chunks. The head matmul itself stays in PyTorch. | `source/train.py`, `_lh_os1_fwd_kernel` near line 5881 |
 | Embedding backward | The embedding gradient as a one-hot matmul on the chip. | `source/train.py`, `_eb_bwd_kernel` near line 5606 |
 
-`source/kernels/` has 25 modules because I kept the earlier variants in the tree: the bf16 fused MLP, the first fp8 versions, and a few experiments that lost. The five named above are the ones `final_run.env` loads.
+`source/kernels/` has 25 modules because I kept the earlier variants in the tree: the bf16 fused MLP, the first fp8 versions, and a few experiments that lost. `final_run.env` loads seven of them: the five named above, plus `nki_mlp_fused8.py` and `nki_attn_proj8.py`, the first fp8 modules, which the fp8 paths still import.
 
 The fp8 kernels add up their tile results in fp32 and round once at the end.
 
@@ -96,6 +96,6 @@ NEURON_LOGICAL_NC_CONFIG=2 torchrun --standalone --nproc_per_node=64 train.py \
     --depth 18 --aspect-ratio 85 --device-batch-size 2 --max-train-seconds 14400
 ```
 
-It isn't pretty. It's a lab notebook that happens to run. I checked the scored file against it at these switches on a small CPU run, and the losses and the checkpoint came out the same bit for bit. The 4-hour runs themselves were the organizers'.
+It isn't pretty. It's a lab notebook that happens to run. I checked the scored file against it on a small CPU run, at the same settings scaled down, and the losses and the checkpoint came out the same bit for bit. The 4-hour runs themselves were the organizers'.
 
 The two tables need more than 800 GB of host memory, and the saved checkpoint is about 157 GB.
